@@ -8,7 +8,7 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
-
+#include "spline.h"
 using namespace std;
 
 // for convenience
@@ -163,6 +163,8 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+int lane =1;
+double ref_vel=0.0;
 int main() {
   uWS::Hub h;
 
@@ -213,12 +215,12 @@ int main() {
 
       if (s != "") {
         auto j = json::parse(s);
-        
+
         string event = j[0].get<string>();
-        
+
         if (event == "telemetry") {
           // j[1] is the data JSON object
-          
+
         	// Main car's localization Data
           	double car_x = j[1]["x"];
           	double car_y = j[1]["y"];
@@ -230,7 +232,7 @@ int main() {
           	// Previous path data given to the Planner
           	auto previous_path_x = j[1]["previous_path_x"];
           	auto previous_path_y = j[1]["previous_path_y"];
-          	// Previous path's end s and d values 
+          	// Previous path's end s and d values
           	double end_path_s = j[1]["end_path_s"];
           	double end_path_d = j[1]["end_path_d"];
 
@@ -241,9 +243,191 @@ int main() {
 
           	vector<double> next_x_vals;
           	vector<double> next_y_vals;
-
+            int prev_size = previous_path_x.size();
+      			if(prev_size>0){
+                          car_s = end_path_s;
+                        }
 
           	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
+            //start
+            //prediction
+            bool too_close = false;
+            bool left_lane_occupied = false;
+            bool right_lane_occupied = false;
+            //distance to kept from front vhicle
+            int keep_gap = 20;
+            //iterating through data provided by sensor Fusion
+            for(int i = 0; i<sensor_fusion.size();i++){
+              float d  = sensor_fusion[i][6]; //d coordinate of the vehicle
+              int lane_obs_car = fabs(d/4); //lane number of the vehicle
+
+              double vx = sensor_fusion[i][3];
+              double vy = sensor_fusion[i][4];
+              double check_speed = sqrt((vx*vx)+(vy*vy));
+              double check_car_s = sensor_fusion[i][5];
+
+			        //check the position of our vehicle in future
+              check_car_s+=((double)prev_size*0.02*check_speed);
+
+			        //if there is vehicle in front of car then check for distance from it
+              if(lane_obs_car == lane){ //if the vehicle is in infront
+                if((check_car_s > car_s) && ((check_car_s - car_s) < keep_gap))//check distance
+                {
+                  too_close=true;
+                }
+              }
+              //if there is vehicle in right of car then check for distance from it
+              else if((lane_obs_car - lane) == 1)//if the vehicle is on right
+              {
+                if( ((car_s - keep_gap) < check_car_s) && ((car_s + keep_gap) > check_car_s))//check distance
+                {
+                  right_lane_occupied=true;
+                }
+              }
+              //if there is vehicle in left of car then check for distance from it
+              else if((lane - lane_obs_car)  == 1)//if the vehicle is on left
+              {
+                if(((car_s - keep_gap) < check_car_s) && ((car_s + keep_gap) > check_car_s))//check distance
+                {
+                  left_lane_occupied=true;
+                }
+              }
+            }
+
+            //behaviour
+            //prediction flags to be used for behaviour planing
+
+            if(too_close){
+              if(! right_lane_occupied && lane < 2)//check if we are in right most lane, if not then move to right lane
+              {
+                lane = lane+1;
+              }
+              else if(! left_lane_occupied && lane > 0){//check if we are in left most lane, if not then move to left lane
+                lane = lane-1;
+              }
+              else{// reduce speed and keep lane
+                ref_vel -= 0.350;
+              }
+            }
+            else{
+				    //move back to middle lane
+                if(lane!=1)
+                {
+                  if ((lane == 2 && !left_lane_occupied) || (lane == 0 && !right_lane_occupied)) {
+						              lane = 1;
+					        }
+                }
+                if(ref_vel<49.5){
+                  ref_vel += 0.350;
+                }
+            }
+            //Trajectory generation
+
+			      //1. Create a list of waypoint seperated by 30m
+			      //2. Interpolate these waypoints with a spline and fill with more points
+
+            vector<double> ptsx;
+            vector<double> ptsy;
+
+            double ref_x = car_x;
+            double ref_y = car_y;
+            double ref_yaw = deg2rad(car_yaw);
+
+
+            if(prev_size<2){
+			    	//Use two points that make the path tangent to the car
+              double prev_car_x = car_x-cos(car_yaw);
+              double prev_car_y = car_y-sin(car_yaw);
+              ptsx.push_back(prev_car_x);
+              ptsx.push_back(car_x);
+              ptsy.push_back(prev_car_y);
+              ptsy.push_back(car_y);
+            }
+			      //Use the previous path end point as starting refrence
+            else{
+
+              ref_x = previous_path_x[prev_size-1];
+              ref_y = previous_path_y[prev_size-1];
+
+              double prev_ref_x = previous_path_x[prev_size-2];
+              double prev_ref_y = previous_path_y[prev_size-2];
+			    	  //waypoints
+              ptsx.push_back(prev_ref_x);
+              ptsx.push_back(ref_x);
+              ptsy.push_back(prev_ref_y);
+              ptsy.push_back(ref_y);
+
+              ref_yaw = atan2(ref_y-prev_ref_y,ref_x-prev_ref_x);
+            }
+
+
+            vector<double> next_wp0 = getXY(car_s+30,2+4*lane,map_waypoints_s,map_waypoints_x,map_waypoints_y);
+            vector<double> next_wp1 = getXY(car_s+60,2+4*lane,map_waypoints_s,map_waypoints_x,map_waypoints_y);
+            vector<double> next_wp2 = getXY(car_s+90,2+4*lane,map_waypoints_s,map_waypoints_x,map_waypoints_y);
+
+            ptsx.push_back(next_wp0[0]);
+            ptsx.push_back(next_wp1[0]);
+            ptsx.push_back(next_wp2[0]);
+
+            ptsy.push_back(next_wp0[1]);
+            ptsy.push_back(next_wp1[1]);
+            ptsy.push_back(next_wp2[1]);
+
+
+            for(int i = 0 ;i<ptsx.size();i++)
+            {
+
+              double shift_x = ptsx[i]-ref_x;
+              double shift_y = ptsy[i] - ref_y;
+
+              ptsx[i] = shift_x * cos(0-ref_yaw)-shift_y*sin(0-ref_yaw);
+              ptsy[i] = shift_x * sin(0-ref_yaw) + shift_y*cos(0-ref_yaw);
+
+
+            }
+
+			      //create spline
+            tk:: spline s;
+
+			      //set (x,y) points to spline
+            s.set_points(ptsx,ptsy);
+
+
+            for(int i =0; i <previous_path_x.size();i++)
+            {
+              next_x_vals.push_back(previous_path_x[i]);
+              next_y_vals.push_back(previous_path_y[i]);
+            }
+
+            double target_x=30.0;
+            double target_y = s(target_x);
+            double target_dist = sqrt((target_x*target_x)+(target_y*target_y));
+
+            double x_add_on = 0 ;
+
+
+			      //Add points to the path planner after filling with previous points. The output will remain 50
+            for(int i = 1; i<=50 - previous_path_x.size();i++){
+              double N = (target_dist)/(.02*ref_vel/2.24);
+              double x_point = x_add_on+ (target_x)/N;
+              double y_point = s(x_point);
+
+              x_add_on = x_point;
+
+              double x_ref = x_point;
+              double y_ref = y_point;
+
+              x_point = (x_ref*cos(ref_yaw)-y_ref*sin(ref_yaw));
+              y_point = (x_ref*sin(ref_yaw)+y_ref*cos(ref_yaw));
+
+              x_point += ref_x;
+              y_point +=ref_y;
+
+              next_x_vals.push_back(x_point);
+              next_y_vals.push_back(y_point);
+
+            }
+            //end
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
@@ -251,7 +435,7 @@ int main() {
 
           	//this_thread::sleep_for(chrono::milliseconds(1000));
           	ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
-          
+
         }
       } else {
         // Manual driving
