@@ -60,12 +60,61 @@ the path has processed since last time.
 
 2. There will be some latency between the simulator running and the path planner returning a path, with optimized code usually its not very long maybe just 1-3 time steps. During this delay the simulator will continue using points that it was last given, because of this its a good idea to store the last points you have used so you can have a smooth transition. previous_path_x, and previous_path_y can be helpful for this transition since they show the last points given to the simulator controller with the processed points already removed. You would either return a path that extends this previous path or make sure to create a new path that has a smooth transition with this last path.
 
-## Tips
+## REFLECTION
 
-A really helpful resource for doing this project and creating smooth trajectories was using http://kluge.in-chemnitz.de/opensource/spline/, the spline function is in a single hearder file is really easy to use.
+I have completed this project by implementing each required part in a single file i.e main.cpp . It could have been easily implemented by making different class files for each part too but I wanted to avoid the overhead of jumping from one file to another.
 
----
+Since in the begining I didnt have much idea of how to start with this project so I went through the walkthrough of the project provided in the classroom. It helped me a lot in building up my approach for implementing this project.
 
+The code model for generating paths is divided into three parts:
+ 1. PREDICTION
+ 2. BEHAVIOUR
+ 3. TRAJECTORY GENERATION
+ 
+#### PREDICTION: 
+
+For prediction I have used the sensor_fusion data provided by the simulator. it contains vector information of the vehicles on road. As there is no complex situation on road so here are steps i have followed or prediction
+
+1.If there is any car in the lane of ego_car
+2.If the lane towards the right of the ego_car is free
+3.If the lane towards the left of the ego_car is free
+above conditions are checked using distance between ego_car and other car coordinates from sensor_fusion
+by taking the following flags : (intially all these flags are set to false)
+
+```
+bool too_close = false;
+bool left_lane_occupied = false;
+bool left_lane_occupied = false;
+```
+
+Code maintains 20 meter between ego_car and other vehicle
+
+#### BEHAVIOUR:
+
+Here we will decided what to do based on the boolean value of the flags.
+It has the following behaviors : 
+1. Checks if the vehicle in front of the ego_car is within 20m or not
+If it is then change lane based upon the flag and current lane of the ego_car . 
+Initially i was using 30 as the distance as suggested in the classroom but then i decreased it to 20 as the car was taking much time to change the lane as 30 miles was quite large range to predict the vehicles. By using 20 miles i got better results and the car was able to complete 4.32 miles in less time compared to 30 meter as distance.
+
+2. Maintain the speed and lane of the ego_car. By decideing whether to accelerate or deaccelerate and return to the middle lane if it is free so as to avoid the possibility of getting stuck among the vehicles.
+
+
+#### Trajectory :
+
+In this part we compute the trajectory for the decision taken by the behaviour. For this I have followed the code as suggested in the classroom.
+
+Check code comments in main.cpp for more details.
+
+##OUTPUT
+All the following points of the rubrics are fullfilled i.e. 
+
+1.The car is able to drive 5.48 miles without incident. 	
+2. Speed limit maintained.
+3. Max Acceleration and Jerk are not Exceeded.
+4. No collisions.
+5. The car stays in its lane, except for the time between changing lanes.
+6. smoothly changes lanes.
 ## Dependencies
 
 * cmake >= 3.5
@@ -87,54 +136,5 @@ A really helpful resource for doing this project and creating smooth trajectorie
     git checkout e94b6e1
     ```
 
-## Editor Settings
 
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
-
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
-
-## Code Style
-
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
-
-## Project Instructions and Rubric
-
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
-
-
-## Call for IDE Profiles Pull Requests
-
-Help your fellow students!
-
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to ensure
-that students don't feel pressured to use one IDE or another.
-
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
-
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
-
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
-
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
-
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
-
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
 
